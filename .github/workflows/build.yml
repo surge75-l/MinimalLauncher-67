@@ -61,8 +61,8 @@ jobs:
                   applicationId = "com.minimal.launcher"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0"
+                  versionCode = 2
+                  versionName = "2.0"
               }
 
               buildTypes {
@@ -97,6 +97,10 @@ jobs:
                       <action android:name="android.intent.action.MAIN" />
                       <category android:name="android.intent.category.LAUNCHER" />
                   </intent>
+                  <intent><action android:name="org.adw.launcher.THEMES" /></intent>
+                  <intent><action android:name="com.novalauncher.THEME" /></intent>
+                  <intent><action android:name="com.anddoes.launcher.THEME" /></intent>
+                  <intent><action android:name="com.gau.go.launcherex.theme" /></intent>
               </queries>
 
               <application
@@ -111,302 +115,21 @@ jobs:
                       android:exported="true"
                       android:launchMode="singleTask"
                       android:stateNotNeeded="true"
-                      android:screenOrientation="portrait"
-                      android:resizeableActivity="false">
+                      android:screenOrientation="portrait">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
                           <category android:name="android.intent.category.HOME" />
                           <category android:name="android.intent.category.DEFAULT" />
                       </intent-filter>
                   </activity>
+
+                  <activity
+                      android:name=".SettingsActivity"
+                      android:exported="false"
+                      android:label="Ajustes"
+                      android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
               </application>
           </manifest>
-          EOF
-
-          cat > app/src/main/java/com/minimal/launcher/MainActivity.kt << 'EOF'
-          package com.minimal.launcher
-
-          import android.app.Activity
-          import android.content.Intent
-          import android.os.Bundle
-          import android.provider.Settings
-          import android.view.GestureDetector
-          import android.view.MotionEvent
-          import kotlin.math.abs
-
-          class MainActivity : Activity() {
-
-              private lateinit var drawer: AppDrawer
-
-              private val gestures by lazy {
-                  GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-                      override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-                          if (e1 == null) return false
-                          val dx = e2.x - e1.x
-                          val dy = e2.y - e1.y
-                          if (abs(dy) < abs(dx) || abs(dy) < 120 || abs(vy) < 600) return false
-                          if (dy < 0) drawer.show(focusSearch = false)
-                          else drawer.show(focusSearch = true)
-                          return true
-                      }
-
-                      override fun onLongPress(e: MotionEvent) {
-                          startActivity(Intent(Settings.ACTION_HOME_SETTINGS))
-                      }
-                  })
-              }
-
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  setContentView(R.layout.activity_main)
-                  drawer = AppDrawer(this, findViewById(R.id.drawer_root))
-              }
-
-              override fun onTouchEvent(event: MotionEvent): Boolean =
-                  gestures.onTouchEvent(event) || super.onTouchEvent(event)
-
-              override fun onNewIntent(intent: Intent) {
-                  super.onNewIntent(intent)
-                  drawer.hide()
-              }
-
-              @Suppress("DEPRECATION")
-              override fun onBackPressed() {
-                  if (drawer.isShowing) drawer.hide() else super.onBackPressed()
-              }
-          }
-          EOF
-
-          cat > app/src/main/java/com/minimal/launcher/AppDrawer.kt << 'EOF'
-          package com.minimal.launcher
-
-          import android.app.Activity
-          import android.content.ComponentName
-          import android.content.Context
-          import android.content.Intent
-          import android.content.pm.ApplicationInfo
-          import android.graphics.ColorMatrix
-          import android.graphics.ColorMatrixColorFilter
-          import android.graphics.drawable.Drawable
-          import android.os.Handler
-          import android.os.Looper
-          import android.view.LayoutInflater
-          import android.view.View
-          import android.view.ViewGroup
-          import android.view.inputmethod.InputMethodManager
-          import android.widget.EditText
-          import android.widget.ImageView
-          import android.widget.TextView
-          import androidx.core.widget.doAfterTextChanged
-          import androidx.recyclerview.widget.GridLayoutManager
-          import androidx.recyclerview.widget.RecyclerView
-
-          data class AppEntry(
-              val label: String,
-              val category: String,
-              val icon: Drawable,
-              val component: ComponentName
-          )
-
-          private val CATEGORY_ORDER = listOf("Comunicación", "Multimedia", "Productividad", "Juegos", "Mapas", "Otros")
-
-          private fun categoryOf(ai: ApplicationInfo): String = when (ai.category) {
-              ApplicationInfo.CATEGORY_SOCIAL, ApplicationInfo.CATEGORY_NEWS -> "Comunicación"
-              ApplicationInfo.CATEGORY_AUDIO, ApplicationInfo.CATEGORY_VIDEO, ApplicationInfo.CATEGORY_IMAGE -> "Multimedia"
-              ApplicationInfo.CATEGORY_PRODUCTIVITY -> "Productividad"
-              ApplicationInfo.CATEGORY_GAME -> "Juegos"
-              ApplicationInfo.CATEGORY_MAPS -> "Mapas"
-              else -> "Otros"
-          }
-
-          class AppDrawer(private val activity: Activity, private val root: View) {
-
-              private val main = Handler(Looper.getMainLooper())
-              private val all = mutableListOf<AppEntry>()
-              private val adapter = Adapter()
-              private val search: EditText = root.findViewById(R.id.search)
-              private val recycler: RecyclerView = root.findViewById(R.id.recycler)
-              private var loaded = false
-
-              private val grayscale = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
-
-              val isShowing: Boolean get() = root.visibility == View.VISIBLE
-
-              init {
-                  val lm = GridLayoutManager(activity, 4)
-                  lm.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
-                      override fun getSpanSize(position: Int): Int = if (adapter.isHeader(position)) 4 else 1
-                  }
-                  recycler.layoutManager = lm
-                  recycler.adapter = adapter
-                  recycler.setHasFixedSize(true)
-                  search.doAfterTextChanged { render(it?.toString().orEmpty()) }
-              }
-
-              fun show(focusSearch: Boolean) {
-                  root.visibility = View.VISIBLE
-                  if (!loaded) load()
-                  if (focusSearch) {
-                      search.requestFocus()
-                      inputMethodManager().showSoftInput(search, 0)
-                  }
-              }
-
-              fun hide() {
-                  root.visibility = View.GONE
-                  search.setText("")
-                  inputMethodManager().hideSoftInputFromWindow(search.windowToken, 0)
-              }
-
-              private fun inputMethodManager() =
-                  activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-
-              private fun load() {
-                  loaded = true
-                  Thread {
-                      val pm = activity.packageManager
-                      val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                      val entries = pm.queryIntentActivities(intent, 0)
-                          .filter { it.activityInfo.packageName != activity.packageName }
-                          .map { ri ->
-                              AppEntry(
-                                  label = ri.loadLabel(pm).toString(),
-                                  category = categoryOf(ri.activityInfo.applicationInfo),
-                                  icon = ri.loadIcon(pm),
-                                  component = ComponentName(ri.activityInfo.packageName, ri.activityInfo.name)
-                              )
-                          }
-                          .sortedBy { it.label.lowercase() }
-
-                      main.post {
-                          all.clear()
-                          all.addAll(entries)
-                          render(search.text.toString())
-                      }
-                  }.start()
-              }
-
-              private fun render(query: String) {
-                  val q = query.trim()
-                  val matches = all.filter { q.isEmpty() || it.label.contains(q, ignoreCase = true) }
-                  val items = mutableListOf<Any>()
-                  CATEGORY_ORDER.forEach { cat ->
-                      val group = matches.filter { it.category == cat }
-                      if (group.isNotEmpty()) {
-                          items.add(cat)
-                          items.addAll(group)
-                      }
-                  }
-                  adapter.submit(items)
-              }
-
-              private inner class Adapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-                  private var items: List<Any> = emptyList()
-
-                  fun submit(newItems: List<Any>) {
-                      items = newItems
-                      notifyDataSetChanged()
-                  }
-
-                  fun isHeader(position: Int): Boolean = items[position] is String
-
-                  override fun getItemViewType(position: Int): Int = if (isHeader(position)) 0 else 1
-
-                  override fun getItemCount(): Int = items.size
-
-                  override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-                      return if (viewType == 0) {
-                          val tv = TextView(parent.context).apply {
-                              textSize = 12f
-                              setTextColor(0xFF9E9E9E.toInt())
-                              setPadding(32, 40, 32, 8)
-                          }
-                          object : RecyclerView.ViewHolder(tv) {}
-                      } else {
-                          AppHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_app, parent, false))
-                      }
-                  }
-
-                  override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-                      when (val item = items[position]) {
-                          is String -> (holder.itemView as TextView).text = item
-                          is AppEntry -> (holder as AppHolder).bind(item)
-                      }
-                  }
-              }
-
-              private inner class AppHolder(view: View) : RecyclerView.ViewHolder(view) {
-                  private val icon: ImageView = view.findViewById(R.id.icon)
-                  private val label: TextView = view.findViewById(R.id.label)
-
-                  fun bind(app: AppEntry) {
-                      icon.setImageDrawable(app.icon)
-                      icon.colorFilter = grayscale
-                      label.text = app.label
-                      itemView.setOnClickListener {
-                          activity.startActivity(
-                              Intent(Intent.ACTION_MAIN)
-                                  .addCategory(Intent.CATEGORY_LAUNCHER)
-                                  .setComponent(app.component)
-                                  .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                          )
-                          hide()
-                      }
-                  }
-              }
-          }
-          EOF
-
-          cat > app/src/main/res/layout/activity_main.xml << 'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-              android:layout_width="match_parent"
-              android:layout_height="match_parent"
-              android:background="#000000">
-
-              <TextClock
-                  android:layout_width="wrap_content"
-                  android:layout_height="wrap_content"
-                  android:layout_gravity="top|center_horizontal"
-                  android:layout_marginTop="96dp"
-                  android:format12Hour="h:mm"
-                  android:format24Hour="HH:mm"
-                  android:textColor="#FFFFFF"
-                  android:textSize="56sp" />
-
-              <FrameLayout
-                  android:id="@+id/drawer_root"
-                  android:layout_width="match_parent"
-                  android:layout_height="match_parent"
-                  android:background="#000000"
-                  android:visibility="gone">
-
-                  <EditText
-                      android:id="@+id/search"
-                      android:layout_width="match_parent"
-                      android:layout_height="wrap_content"
-                      android:layout_gravity="top"
-                      android:layout_marginStart="24dp"
-                      android:layout_marginTop="48dp"
-                      android:layout_marginEnd="24dp"
-                      android:background="@null"
-                      android:hint="Buscar"
-                      android:imeOptions="actionSearch"
-                      android:inputType="text"
-                      android:singleLine="true"
-                      android:textColor="#FFFFFF"
-                      android:textColorHint="#666666"
-                      android:textSize="18sp" />
-
-                  <androidx.recyclerview.widget.RecyclerView
-                      android:id="@+id/recycler"
-                      android:layout_width="match_parent"
-                      android:layout_height="match_parent"
-                      android:layout_marginTop="120dp"
-                      android:paddingBottom="48dp"
-                      android:clipToPadding="false" />
-              </FrameLayout>
-          </FrameLayout>
           EOF
 
           cat > app/src/main/res/layout/item_app.xml << 'EOF'
@@ -417,12 +140,13 @@ jobs:
               android:background="?android:attr/selectableItemBackgroundBorderless"
               android:gravity="center_horizontal"
               android:orientation="vertical"
-              android:padding="8dp">
+              android:paddingTop="10dp"
+              android:paddingBottom="10dp">
 
               <ImageView
                   android:id="@+id/icon"
-                  android:layout_width="48dp"
-                  android:layout_height="48dp" />
+                  android:layout_width="56dp"
+                  android:layout_height="56dp" />
 
               <TextView
                   android:id="@+id/label"
@@ -432,9 +156,662 @@ jobs:
                   android:ellipsize="end"
                   android:gravity="center"
                   android:maxLines="1"
-                  android:textColor="#E0E0E0"
-                  android:textSize="11sp" />
+                  android:textColor="#FFFFFF"
+                  android:textSize="12sp" />
           </LinearLayout>
+          EOF
+
+          cat > app/src/main/java/com/minimal/launcher/Apps.kt << 'EOF'
+          package com.minimal.launcher
+
+          import android.content.ComponentName
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.ApplicationInfo
+          import android.graphics.drawable.Drawable
+          import android.os.Handler
+          import android.os.Looper
+          import java.util.concurrent.Executors
+
+          data class AppEntry(
+              val label: String,
+              val category: String,
+              val component: ComponentName,
+              val defaultIcon: Drawable
+          ) {
+              val key: String get() = component.flattenToString()
+          }
+
+          val CATEGORY_ORDER = listOf("Comunicación", "Multimedia", "Productividad", "Juegos", "Mapas", "Otros")
+
+          fun categoryOf(ai: ApplicationInfo): String = when (ai.category) {
+              ApplicationInfo.CATEGORY_SOCIAL, ApplicationInfo.CATEGORY_NEWS -> "Comunicación"
+              ApplicationInfo.CATEGORY_AUDIO, ApplicationInfo.CATEGORY_VIDEO, ApplicationInfo.CATEGORY_IMAGE -> "Multimedia"
+              ApplicationInfo.CATEGORY_PRODUCTIVITY -> "Productividad"
+              ApplicationInfo.CATEGORY_GAME -> "Juegos"
+              ApplicationInfo.CATEGORY_MAPS -> "Mapas"
+              else -> "Otros"
+          }
+
+          object AppRepo {
+              val apps = ArrayList<AppEntry>()
+              private val executor = Executors.newSingleThreadExecutor()
+              private val main = Handler(Looper.getMainLooper())
+
+              fun load(context: Context, onDone: () -> Unit) {
+                  val app = context.applicationContext
+                  executor.execute {
+                      val pm = app.packageManager
+                      val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                      val list = pm.queryIntentActivities(intent, 0)
+                          .filter { it.activityInfo.packageName != app.packageName }
+                          .map { ri ->
+                              AppEntry(
+                                  label = ri.loadLabel(pm).toString(),
+                                  category = categoryOf(ri.activityInfo.applicationInfo),
+                                  component = ComponentName(ri.activityInfo.packageName, ri.activityInfo.name),
+                                  defaultIcon = ri.loadIcon(pm)
+                              )
+                          }
+                          .sortedBy { it.label.lowercase() }
+                      main.post {
+                          apps.clear()
+                          apps.addAll(list)
+                          onDone()
+                      }
+                  }
+              }
+
+              fun find(key: String): AppEntry? = apps.firstOrNull { it.key == key }
+
+              fun iconOf(context: Context, app: AppEntry): Drawable =
+                  IconPacks.get(context, Prefs.iconPack(context))?.iconFor(app.key) ?: app.defaultIcon
+          }
+          EOF
+
+          cat > app/src/main/java/com/minimal/launcher/IconPacks.kt << 'EOF'
+          package com.minimal.launcher
+
+          import android.content.Context
+          import android.content.Intent
+          import android.content.res.Resources
+          import android.graphics.drawable.Drawable
+          import org.xmlpull.v1.XmlPullParser
+
+          class IconPack(
+              val pkg: String,
+              private val res: Resources,
+              private val map: Map<String, String>
+          ) {
+              private val cache = HashMap<String, Drawable?>()
+
+              fun iconFor(key: String): Drawable? = cache.getOrPut(key) { lookup(key) }
+
+              private fun lookup(key: String): Drawable? {
+                  val name = map[key] ?: return null
+                  val id = res.getIdentifier(name, "drawable", pkg)
+                  if (id == 0) return null
+                  return try {
+                      res.getDrawable(id, null)
+                  } catch (e: Exception) {
+                      null
+                  }
+              }
+          }
+
+          object IconPacks {
+              private val ACTIONS = listOf(
+                  "org.adw.launcher.THEMES",
+                  "com.novalauncher.THEME",
+                  "com.anddoes.launcher.THEME",
+                  "com.gau.go.launcherex.theme"
+              )
+
+              private var cachedPkg: String? = null
+              private var cached: IconPack? = null
+
+              fun available(context: Context): List<Pair<String, String>> {
+                  val pm = context.packageManager
+                  val result = LinkedHashMap<String, String>()
+                  for (action in ACTIONS) {
+                      for (ri in pm.queryIntentActivities(Intent(action), 0)) {
+                          val pkg = ri.activityInfo.packageName
+                          if (!result.containsKey(pkg)) {
+                              result[pkg] = ri.loadLabel(pm).toString()
+                          }
+                      }
+                  }
+                  return result.map { Pair(it.key, it.value) }
+              }
+
+              fun get(context: Context, pkg: String?): IconPack? {
+                  if (pkg.isNullOrEmpty()) return null
+                  if (pkg != cachedPkg) {
+                      cached = load(context, pkg)
+                      cachedPkg = pkg
+                  }
+                  return cached
+              }
+
+              private fun load(context: Context, pkg: String): IconPack? {
+                  return try {
+                      val res = context.packageManager.getResourcesForApplication(pkg)
+                      val id = res.getIdentifier("appfilter", "xml", pkg)
+                      if (id == 0) {
+                          null
+                      } else {
+                          IconPack(pkg, res, parseFilter(res.getXml(id)))
+                      }
+                  } catch (e: Exception) {
+                      null
+                  }
+              }
+
+              // Lee res/xml/appfilter.xml: component="ComponentInfo{pkg/clase}" drawable="nombre"
+              private fun parseFilter(parser: XmlPullParser): Map<String, String> {
+                  val map = HashMap<String, String>()
+                  var event = parser.eventType
+                  while (event != XmlPullParser.END_DOCUMENT) {
+                      if (event == XmlPullParser.START_TAG && parser.name == "item") {
+                          val comp = parser.getAttributeValue(null, "component")
+                          val drawable = parser.getAttributeValue(null, "drawable")
+                          if (comp != null && drawable != null) {
+                              map[comp.removePrefix("ComponentInfo{").removeSuffix("}")] = drawable
+                          }
+                      }
+                      event = parser.next()
+                  }
+                  return map
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/minimal/launcher/Prefs.kt << 'EOF'
+          package com.minimal.launcher
+
+          import android.content.Context
+
+          object Prefs {
+              private const val FILE = "launcher"
+
+              private fun sp(c: Context) = c.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+              fun iconPack(c: Context): String? = sp(c).getString("iconpack", null)
+
+              fun setIconPack(c: Context, pkg: String?) {
+                  sp(c).edit().putString("iconpack", pkg).apply()
+              }
+
+              fun home(c: Context): MutableList<String> = readList(c, "home")
+              fun dock(c: Context): MutableList<String> = readList(c, "dock")
+
+              fun saveHome(c: Context, list: List<String>) = writeList(c, "home", list)
+              fun saveDock(c: Context, list: List<String>) = writeList(c, "dock", list)
+
+              private fun readList(c: Context, key: String): MutableList<String> {
+                  val raw = sp(c).getString(key, "") ?: ""
+                  return if (raw.isEmpty()) mutableListOf() else raw.split("|").toMutableList()
+              }
+
+              private fun writeList(c: Context, key: String, list: List<String>) {
+                  sp(c).edit().putString(key, list.joinToString("|")).apply()
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/minimal/launcher/Ui.kt << 'EOF'
+          package com.minimal.launcher
+
+          import android.content.Context
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
+          import android.view.LayoutInflater
+          import android.view.View
+          import android.view.ViewGroup
+          import android.widget.ImageView
+          import android.widget.TextView
+          import androidx.recyclerview.widget.RecyclerView
+
+          fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
+
+          fun roundBg(color: Int, radius: Float): GradientDrawable =
+              GradientDrawable().apply {
+                  setColor(color)
+                  cornerRadius = radius
+              }
+
+          class AppAdapter(
+              private val context: Context,
+              private val onClick: (AppEntry) -> Unit,
+              private val onLongClick: (AppEntry, View) -> Unit
+          ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+              private var items: List<Any> = emptyList()
+
+              fun submit(list: List<Any>) {
+                  items = list
+                  notifyDataSetChanged()
+              }
+
+              fun isHeader(position: Int): Boolean = items[position] is String
+
+              override fun getItemViewType(position: Int): Int = if (isHeader(position)) 0 else 1
+
+              override fun getItemCount(): Int = items.size
+
+              override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+                  return if (viewType == 0) {
+                      val ctx = parent.context
+                      val tv = TextView(ctx).apply {
+                          textSize = 13f
+                          setTextColor(0xFF9A9A9A.toInt())
+                          setTypeface(typeface, Typeface.BOLD)
+                          setPadding(ctx.dp(20), ctx.dp(24), ctx.dp(20), ctx.dp(8))
+                      }
+                      object : RecyclerView.ViewHolder(tv) {}
+                  } else {
+                      AppHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_app, parent, false))
+                  }
+              }
+
+              override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+                  when (val item = items[position]) {
+                      is String -> (holder.itemView as TextView).text = item
+                      is AppEntry -> (holder as AppHolder).bind(item)
+                  }
+              }
+
+              inner class AppHolder(view: View) : RecyclerView.ViewHolder(view) {
+                  private val icon: ImageView = view.findViewById(R.id.icon)
+                  private val label: TextView = view.findViewById(R.id.label)
+
+                  fun bind(app: AppEntry) {
+                      icon.setImageDrawable(AppRepo.iconOf(context, app))
+                      label.text = app.label
+                      itemView.setOnClickListener { onClick(app) }
+                      itemView.setOnLongClickListener {
+                          onLongClick(app, itemView)
+                          true
+                      }
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/minimal/launcher/MainActivity.kt << 'EOF'
+          package com.minimal.launcher
+
+          import android.app.Activity
+          import android.content.Intent
+          import android.graphics.Color
+          import android.graphics.Typeface
+          import android.net.Uri
+          import android.os.Bundle
+          import android.provider.Settings
+          import android.view.GestureDetector
+          import android.view.Gravity
+          import android.view.MotionEvent
+          import android.view.View
+          import android.view.ViewGroup
+          import android.view.inputmethod.InputMethodManager
+          import android.widget.EditText
+          import android.widget.FrameLayout
+          import android.widget.ImageView
+          import android.widget.LinearLayout
+          import android.widget.PopupMenu
+          import android.widget.TextClock
+          import android.widget.Toast
+          import androidx.core.widget.doAfterTextChanged
+          import androidx.recyclerview.widget.GridLayoutManager
+          import androidx.recyclerview.widget.RecyclerView
+          import kotlin.math.abs
+
+          class MainActivity : Activity() {
+
+              private enum class Place { DRAWER, HOME, DOCK }
+
+              private lateinit var root: FrameLayout
+              private lateinit var homeAdapter: AppAdapter
+              private lateinit var dockRow: LinearLayout
+              private lateinit var drawer: FrameLayout
+              private lateinit var drawerSearch: EditText
+              private lateinit var drawerAdapter: AppAdapter
+
+              private val gestures by lazy {
+                  GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+                      override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
+                          if (e1 == null) return false
+                          val dx = e2.x - e1.x
+                          val dy = e2.y - e1.y
+                          if (abs(dy) < abs(dx) || abs(dy) < 120 || abs(vy) < 600) return false
+                          if (dy < 0) {
+                              if (!isDrawerOpen()) openDrawer(focusSearch = false)
+                          } else {
+                              if (isDrawerOpen()) closeDrawer() else openDrawer(focusSearch = true)
+                          }
+                          return true
+                      }
+                  })
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  window.statusBarColor = Color.BLACK
+                  window.navigationBarColor = Color.BLACK
+                  buildUi()
+                  setContentView(root)
+              }
+
+              override fun onResume() {
+                  super.onResume()
+                  AppRepo.load(this) { refreshAll() }
+              }
+
+              override fun onNewIntent(intent: Intent) {
+                  super.onNewIntent(intent)
+                  closeDrawer()
+              }
+
+              override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+                  gestures.onTouchEvent(ev)
+                  return super.dispatchTouchEvent(ev)
+              }
+
+              @Suppress("DEPRECATION")
+              override fun onBackPressed() {
+                  if (isDrawerOpen()) closeDrawer() else super.onBackPressed()
+              }
+
+              private fun buildUi() {
+                  root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+
+                  val home = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(0, dp(44), 0, dp(12))
+                      setOnLongClickListener {
+                          openSettings()
+                          true
+                      }
+                  }
+
+                  val clock = TextClock(this).apply {
+                      format12Hour = "h:mm"
+                      format24Hour = "HH:mm"
+                      textSize = 60f
+                      setTextColor(Color.WHITE)
+                      typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+                      setPadding(dp(24), 0, dp(24), 0)
+                  }
+                  val date = TextClock(this).apply {
+                      format12Hour = "EEEE, d MMMM"
+                      format24Hour = "EEEE, d MMMM"
+                      textSize = 15f
+                      setTextColor(0xFFB0B0B0.toInt())
+                      setPadding(dp(24), dp(2), dp(24), dp(20))
+                  }
+                  home.addView(clock)
+                  home.addView(date)
+
+                  homeAdapter = AppAdapter(this, ::launch) { app, v -> showMenu(v, app, Place.HOME) }
+                  val homeGrid = RecyclerView(this).apply {
+                      layoutManager = GridLayoutManager(this@MainActivity, 4)
+                      adapter = homeAdapter
+                      clipToPadding = false
+                      setPadding(dp(8), 0, dp(8), 0)
+                  }
+                  home.addView(homeGrid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+
+                  dockRow = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                      background = roundBg(0xFF1C1C1E.toInt(), dp(28).toFloat())
+                      setPadding(dp(8), dp(10), dp(8), dp(10))
+                  }
+                  home.addView(
+                      dockRow,
+                      LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                          setMargins(dp(12), 0, dp(12), 0)
+                      }
+                  )
+
+                  drawerAdapter = AppAdapter(this, ::launch) { app, v -> showMenu(v, app, Place.DRAWER) }
+                  val drawerList = RecyclerView(this).apply {
+                      layoutManager = GridLayoutManager(this@MainActivity, 4).apply {
+                          spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+                              override fun getSpanSize(position: Int): Int =
+                                  if (drawerAdapter.isHeader(position)) 4 else 1
+                          }
+                      }
+                      adapter = drawerAdapter
+                      clipToPadding = false
+                      setPadding(dp(8), 0, dp(8), dp(24))
+                  }
+
+                  drawerSearch = EditText(this).apply {
+                      hint = "Buscar apps"
+                      setHintTextColor(0xFF777777.toInt())
+                      setTextColor(Color.WHITE)
+                      textSize = 16f
+                      isSingleLine = true
+                      background = roundBg(0xFF1C1C1E.toInt(), dp(24).toFloat())
+                      setPadding(dp(18), dp(12), dp(18), dp(12))
+                      doAfterTextChanged { renderDrawer(it?.toString().orEmpty()) }
+                  }
+
+                  val drawerCol = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(dp(16), dp(44), dp(16), 0)
+                      addView(
+                          drawerSearch,
+                          LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                      )
+                      addView(drawerList, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+                  }
+
+                  drawer = FrameLayout(this).apply {
+                      setBackgroundColor(Color.BLACK)
+                      visibility = View.GONE
+                      addView(
+                          drawerCol,
+                          FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                      )
+                  }
+
+                  root.addView(home, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                  root.addView(drawer, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+              }
+
+              private fun refreshAll() {
+                  homeAdapter.submit(Prefs.home(this).mapNotNull { AppRepo.find(it) })
+                  renderDock()
+                  renderDrawer(drawerSearch.text.toString())
+              }
+
+              private fun renderDock() {
+                  dockRow.removeAllViews()
+                  val keys = Prefs.dock(this)
+                  for (i in 0 until 4) {
+                      val app = keys.getOrNull(i)?.let { AppRepo.find(it) }
+                      val slot = FrameLayout(this)
+                      slot.layoutParams = LinearLayout.LayoutParams(0, dp(72), 1f)
+                      val iv = ImageView(this).apply {
+                          layoutParams = FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER)
+                          scaleType = ImageView.ScaleType.FIT_CENTER
+                      }
+                      slot.addView(iv)
+                      if (app != null) {
+                          iv.setImageDrawable(AppRepo.iconOf(this, app))
+                          slot.setOnClickListener { launch(app) }
+                          slot.setOnLongClickListener {
+                              showMenu(slot, app, Place.DOCK)
+                              true
+                          }
+                      }
+                      dockRow.addView(slot)
+                  }
+              }
+
+              private fun renderDrawer(query: String) {
+                  val q = query.trim()
+                  val matches = AppRepo.apps.filter { q.isEmpty() || it.label.contains(q, ignoreCase = true) }
+                  val items = ArrayList<Any>()
+                  for (cat in CATEGORY_ORDER) {
+                      val group = matches.filter { it.category == cat }
+                      if (group.isNotEmpty()) {
+                          items.add(cat)
+                          items.addAll(group)
+                      }
+                  }
+                  drawerAdapter.submit(items)
+              }
+
+              private fun launch(app: AppEntry) {
+                  startActivity(
+                      Intent(Intent.ACTION_MAIN)
+                          .addCategory(Intent.CATEGORY_LAUNCHER)
+                          .setComponent(app.component)
+                          .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                  )
+                  closeDrawer()
+              }
+
+              private fun showMenu(anchor: View, app: AppEntry, place: Place) {
+                  val popup = PopupMenu(this, anchor)
+                  when (place) {
+                      Place.DRAWER -> {
+                          popup.menu.add(0, 1, 0, "Añadir al inicio")
+                          popup.menu.add(0, 2, 0, "Añadir al dock")
+                      }
+                      Place.HOME -> popup.menu.add(0, 3, 0, "Quitar del inicio")
+                      Place.DOCK -> popup.menu.add(0, 4, 0, "Quitar del dock")
+                  }
+                  popup.menu.add(0, 5, 0, "Información de la app")
+                  popup.setOnMenuItemClickListener { item ->
+                      when (item.itemId) {
+                          1 -> addToHome(app)
+                          2 -> addToDock(app)
+                          3 -> {
+                              Prefs.saveHome(this, Prefs.home(this).apply { remove(app.key) })
+                              refreshAll()
+                          }
+                          4 -> {
+                              Prefs.saveDock(this, Prefs.dock(this).apply { remove(app.key) })
+                              refreshAll()
+                          }
+                          5 -> startActivity(
+                              Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                  Uri.parse("package:${app.component.packageName}"))
+                          )
+                      }
+                      true
+                  }
+                  popup.show()
+              }
+
+              private fun addToHome(app: AppEntry) {
+                  val list = Prefs.home(this)
+                  if (app.key !in list) {
+                      list.add(app.key)
+                      Prefs.saveHome(this, list)
+                  }
+                  refreshAll()
+                  closeDrawer()
+              }
+
+              private fun addToDock(app: AppEntry) {
+                  val list = Prefs.dock(this)
+                  when {
+                      app.key in list -> Unit
+                      list.size >= 4 -> Toast.makeText(this, "El dock está lleno", Toast.LENGTH_SHORT).show()
+                      else -> {
+                          list.add(app.key)
+                          Prefs.saveDock(this, list)
+                      }
+                  }
+                  refreshAll()
+                  closeDrawer()
+              }
+
+              private fun isDrawerOpen(): Boolean = drawer.visibility == View.VISIBLE
+
+              private fun openDrawer(focusSearch: Boolean) {
+                  drawer.visibility = View.VISIBLE
+                  if (focusSearch) {
+                      drawerSearch.requestFocus()
+                      (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
+                          .showSoftInput(drawerSearch, 0)
+                  }
+              }
+
+              private fun closeDrawer() {
+                  if (!isDrawerOpen()) return
+                  drawer.visibility = View.GONE
+                  drawerSearch.setText("")
+                  drawerSearch.clearFocus()
+                  (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
+                      .hideSoftInputFromWindow(drawerSearch.windowToken, 0)
+              }
+
+              private fun openSettings() {
+                  startActivity(Intent(this, SettingsActivity::class.java))
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/minimal/launcher/SettingsActivity.kt << 'EOF'
+          package com.minimal.launcher
+
+          import android.app.Activity
+          import android.graphics.Color
+          import android.os.Bundle
+          import android.view.View
+          import android.view.ViewGroup
+          import android.widget.ArrayAdapter
+          import android.widget.ListView
+          import android.widget.TextView
+
+          class SettingsActivity : Activity() {
+
+              private data class Option(val pkg: String?, val label: String)
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  window.statusBarColor = Color.BLACK
+                  window.navigationBarColor = Color.BLACK
+
+                  val options = ArrayList<Option>()
+                  options.add(Option(null, "Iconos originales"))
+                  for ((pkg, label) in IconPacks.available(this)) {
+                      options.add(Option(pkg, label))
+                  }
+
+                  val current = Prefs.iconPack(this)
+                  val labels = options.map { (if (it.pkg == current) "✓  " else "    ") + it.label }
+
+                  val padH = dp(20)
+                  val padV = dp(16)
+                  val arrayAdapter = object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, labels) {
+                      override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                          val tv = super.getView(position, convertView, parent) as TextView
+                          tv.setTextColor(Color.WHITE)
+                          tv.setBackgroundColor(Color.BLACK)
+                          tv.textSize = 17f
+                          tv.setPadding(padH, padV, padH, padV)
+                          return tv
+                      }
+                  }
+
+                  val list = ListView(this).apply {
+                      setBackgroundColor(Color.BLACK)
+                      adapter = arrayAdapter
+                      setOnItemClickListener { _, _, position, _ ->
+                          Prefs.setIconPack(this@SettingsActivity, options[position].pkg)
+                          this@SettingsActivity.finish()
+                      }
+                  }
+                  setContentView(list)
+              }
+          }
           EOF
 
           echo "Proyecto generado:"
