@@ -61,8 +61,8 @@ jobs:
                   applicationId = "com.minimal.launcher"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 2
-                  versionName = "2.0"
+                  versionCode = 3
+                  versionName = "3.0"
               }
 
               buildTypes {
@@ -365,10 +365,12 @@ jobs:
           import android.content.Context
           import android.graphics.Typeface
           import android.graphics.drawable.GradientDrawable
+          import android.view.Gravity
           import android.view.LayoutInflater
           import android.view.View
           import android.view.ViewGroup
           import android.widget.ImageView
+          import android.widget.LinearLayout
           import android.widget.TextView
           import androidx.recyclerview.widget.RecyclerView
 
@@ -380,37 +382,73 @@ jobs:
                   cornerRadius = radius
               }
 
+          object AddTile
+
           class AppAdapter(
               private val context: Context,
               private val onClick: (AppEntry) -> Unit,
-              private val onLongClick: (AppEntry, View) -> Unit
+              private val onLongClick: (AppEntry, View) -> Unit,
+              private val showAdd: Boolean = false,
+              private val onAdd: () -> Unit = {}
           ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
               private var items: List<Any> = emptyList()
 
               fun submit(list: List<Any>) {
-                  items = list
+                  items = if (showAdd) list + AddTile else list
                   notifyDataSetChanged()
               }
 
               fun isHeader(position: Int): Boolean = items[position] is String
 
-              override fun getItemViewType(position: Int): Int = if (isHeader(position)) 0 else 1
+              override fun getItemViewType(position: Int): Int = when (items[position]) {
+                  is String -> 0
+                  is AddTile -> 2
+                  else -> 1
+              }
 
               override fun getItemCount(): Int = items.size
 
               override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-                  return if (viewType == 0) {
-                      val ctx = parent.context
-                      val tv = TextView(ctx).apply {
-                          textSize = 13f
-                          setTextColor(0xFF9A9A9A.toInt())
-                          setTypeface(typeface, Typeface.BOLD)
-                          setPadding(ctx.dp(20), ctx.dp(24), ctx.dp(20), ctx.dp(8))
+                  val ctx = parent.context
+                  return when (viewType) {
+                      0 -> {
+                          val tv = TextView(ctx).apply {
+                              textSize = 13f
+                              setTextColor(0xFF9A9A9A.toInt())
+                              setTypeface(typeface, Typeface.BOLD)
+                              setPadding(ctx.dp(20), ctx.dp(24), ctx.dp(20), ctx.dp(8))
+                          }
+                          object : RecyclerView.ViewHolder(tv) {}
                       }
-                      object : RecyclerView.ViewHolder(tv) {}
-                  } else {
-                      AppHolder(LayoutInflater.from(parent.context).inflate(R.layout.item_app, parent, false))
+                      2 -> {
+                          val tile = LinearLayout(ctx).apply {
+                              orientation = LinearLayout.VERTICAL
+                              gravity = Gravity.CENTER_HORIZONTAL
+                              setPadding(0, ctx.dp(10), 0, ctx.dp(10))
+                              addView(TextView(ctx).apply {
+                                  text = "+"
+                                  textSize = 28f
+                                  setTextColor(0xFFBBBBBB.toInt())
+                                  gravity = Gravity.CENTER
+                                  background = roundBg(0xFF1C1C1E.toInt(), ctx.dp(28).toFloat())
+                                  layoutParams = LinearLayout.LayoutParams(ctx.dp(56), ctx.dp(56))
+                              })
+                              addView(TextView(ctx).apply {
+                                  text = "Añadir"
+                                  textSize = 12f
+                                  setTextColor(0xFF9E9E9E.toInt())
+                                  gravity = Gravity.CENTER
+                                  layoutParams = LinearLayout.LayoutParams(
+                                      ViewGroup.LayoutParams.MATCH_PARENT,
+                                      ViewGroup.LayoutParams.WRAP_CONTENT
+                                  ).apply { topMargin = ctx.dp(6) }
+                              })
+                          }
+                          tile.setOnClickListener { onAdd() }
+                          object : RecyclerView.ViewHolder(tile) {}
+                      }
+                      else -> AppHolder(LayoutInflater.from(ctx).inflate(R.layout.item_app, parent, false))
                   }
               }
 
@@ -418,6 +456,7 @@ jobs:
                   when (val item = items[position]) {
                       is String -> (holder.itemView as TextView).text = item
                       is AppEntry -> (holder as AppHolder).bind(item)
+                      else -> Unit
                   }
               }
 
@@ -442,13 +481,14 @@ jobs:
           package com.minimal.launcher
 
           import android.app.Activity
+          import android.content.ActivityNotFoundException
           import android.content.Intent
           import android.graphics.Color
           import android.graphics.Typeface
           import android.net.Uri
           import android.os.Bundle
+          import android.provider.AlarmClock
           import android.provider.Settings
-          import android.view.GestureDetector
           import android.view.Gravity
           import android.view.MotionEvent
           import android.view.View
@@ -472,27 +512,15 @@ jobs:
 
               private lateinit var root: FrameLayout
               private lateinit var homeAdapter: AppAdapter
-              private lateinit var dockRow: LinearLayout
+              private lateinit var drawerAdapter: AppAdapter
+              private lateinit var drawerList: RecyclerView
               private lateinit var drawer: FrameLayout
               private lateinit var drawerSearch: EditText
-              private lateinit var drawerAdapter: AppAdapter
+              private lateinit var dockRow: LinearLayout
 
-              private val gestures by lazy {
-                  GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-                      override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-                          if (e1 == null) return false
-                          val dx = e2.x - e1.x
-                          val dy = e2.y - e1.y
-                          if (abs(dy) < abs(dx) || abs(dy) < 120 || abs(vy) < 600) return false
-                          if (dy < 0) {
-                              if (!isDrawerOpen()) openDrawer(focusSearch = false)
-                          } else {
-                              if (isDrawerOpen()) closeDrawer() else openDrawer(focusSearch = true)
-                          }
-                          return true
-                      }
-                  })
-              }
+              private var downX = 0f
+              private var downY = 0f
+              private var downAtTop = false
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -512,9 +540,31 @@ jobs:
                   closeDrawer()
               }
 
+              // Detecta deslizamientos en todo el sistema de toques, así la lista no se los come.
               override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-                  gestures.onTouchEvent(ev)
+                  when (ev.actionMasked) {
+                      MotionEvent.ACTION_DOWN -> {
+                          downX = ev.rawX
+                          downY = ev.rawY
+                          // Solo cerramos el cajón si el deslizamiento empezó con la lista arriba del todo
+                          downAtTop = !drawerList.canScrollVertically(-1)
+                      }
+                      MotionEvent.ACTION_UP -> detectSwipe(ev.rawX, ev.rawY)
+                  }
                   return super.dispatchTouchEvent(ev)
+              }
+
+              private fun detectSwipe(x: Float, y: Float) {
+                  val dx = x - downX
+                  val dy = y - downY
+                  if (abs(dy) < dp(80) || abs(dy) < abs(dx) * 1.5f) return
+                  if (dy < 0) {
+                      if (!isDrawerOpen()) openDrawer(focusSearch = false)
+                  } else if (isDrawerOpen()) {
+                      if (downAtTop) closeDrawer()
+                  } else {
+                      openDrawer(focusSearch = true)
+                  }
               }
 
               @Suppress("DEPRECATION")
@@ -527,7 +577,7 @@ jobs:
 
                   val home = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
-                      setPadding(0, dp(44), 0, dp(12))
+                      setPadding(0, dp(56), 0, dp(12))
                       setOnLongClickListener {
                           openSettings()
                           true
@@ -537,27 +587,35 @@ jobs:
                   val clock = TextClock(this).apply {
                       format12Hour = "h:mm"
                       format24Hour = "HH:mm"
-                      textSize = 60f
+                      textSize = 64f
                       setTextColor(Color.WHITE)
                       typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
                       setPadding(dp(24), 0, dp(24), 0)
+                      setOnClickListener { openClock() }
                   }
                   val date = TextClock(this).apply {
                       format12Hour = "EEEE, d MMMM"
                       format24Hour = "EEEE, d MMMM"
-                      textSize = 15f
-                      setTextColor(0xFFB0B0B0.toInt())
-                      setPadding(dp(24), dp(2), dp(24), dp(20))
+                      textSize = 16f
+                      setTextColor(0xFF9E9E9E.toInt())
+                      setPadding(dp(24), dp(2), dp(24), dp(16))
                   }
                   home.addView(clock)
                   home.addView(date)
 
-                  homeAdapter = AppAdapter(this, ::launch) { app, v -> showMenu(v, app, Place.HOME) }
+                  homeAdapter = AppAdapter(
+                      context = this,
+                      onClick = ::launch,
+                      onLongClick = { app, v -> showMenu(v, app, Place.HOME) },
+                      showAdd = true,
+                      onAdd = { openDrawer(focusSearch = false) }
+                  )
                   val homeGrid = RecyclerView(this).apply {
                       layoutManager = GridLayoutManager(this@MainActivity, 4)
                       adapter = homeAdapter
                       clipToPadding = false
-                      setPadding(dp(8), 0, dp(8), 0)
+                      setPadding(dp(8), 0, dp(8), dp(8))
+                      overScrollMode = View.OVER_SCROLL_NEVER
                   }
                   home.addView(homeGrid, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
@@ -574,8 +632,12 @@ jobs:
                       }
                   )
 
-                  drawerAdapter = AppAdapter(this, ::launch) { app, v -> showMenu(v, app, Place.DRAWER) }
-                  val drawerList = RecyclerView(this).apply {
+                  drawerAdapter = AppAdapter(
+                      context = this,
+                      onClick = ::launch,
+                      onLongClick = { app, v -> showMenu(v, app, Place.DRAWER) }
+                  )
+                  drawerList = RecyclerView(this).apply {
                       layoutManager = GridLayoutManager(this@MainActivity, 4).apply {
                           spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
                               override fun getSpanSize(position: Int): Int =
@@ -584,7 +646,8 @@ jobs:
                       }
                       adapter = drawerAdapter
                       clipToPadding = false
-                      setPadding(dp(8), 0, dp(8), dp(24))
+                      setPadding(dp(8), 0, dp(8), dp(16))
+                      overScrollMode = View.OVER_SCROLL_NEVER
                   }
 
                   drawerSearch = EditText(this).apply {
@@ -598,6 +661,17 @@ jobs:
                       doAfterTextChanged { renderDrawer(it?.toString().orEmpty()) }
                   }
 
+                  // Barrita para cerrar el cajón con un toque
+                  val handle = FrameLayout(this).apply {
+                      setOnClickListener { closeDrawer() }
+                      addView(
+                          View(this@MainActivity).apply {
+                              background = roundBg(0xFF555555.toInt(), dp(3).toFloat())
+                          },
+                          FrameLayout.LayoutParams(dp(48), dp(5), Gravity.CENTER)
+                      )
+                  }
+
                   val drawerCol = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
                       setPadding(dp(16), dp(44), dp(16), 0)
@@ -606,6 +680,7 @@ jobs:
                           LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                       )
                       addView(drawerList, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+                      addView(handle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(36)))
                   }
 
                   drawer = FrameLayout(this).apply {
@@ -677,15 +752,19 @@ jobs:
 
               private fun showMenu(anchor: View, app: AppEntry, place: Place) {
                   val popup = PopupMenu(this, anchor)
+                  val m = popup.menu
                   when (place) {
                       Place.DRAWER -> {
-                          popup.menu.add(0, 1, 0, "Añadir al inicio")
-                          popup.menu.add(0, 2, 0, "Añadir al dock")
+                          m.add(0, 1, 0, "Añadir al inicio")
+                          m.add(0, 2, 1, "Añadir al dock")
                       }
-                      Place.HOME -> popup.menu.add(0, 3, 0, "Quitar del inicio")
-                      Place.DOCK -> popup.menu.add(0, 4, 0, "Quitar del dock")
+                      Place.HOME -> {
+                          m.add(0, 3, 0, "Quitar del inicio")
+                          m.add(0, 2, 1, "Añadir al dock")
+                      }
+                      Place.DOCK -> m.add(0, 4, 0, "Quitar del dock")
                   }
-                  popup.menu.add(0, 5, 0, "Información de la app")
+                  m.add(0, 5, 9, "Información de la app")
                   popup.setOnMenuItemClickListener { item ->
                       when (item.itemId) {
                           1 -> addToHome(app)
@@ -732,10 +811,21 @@ jobs:
                   closeDrawer()
               }
 
+              private fun openClock() {
+                  try {
+                      startActivity(Intent(AlarmClock.ACTION_SHOW_ALARMS))
+                  } catch (e: ActivityNotFoundException) {
+                      Toast.makeText(this, "No hay app de reloj", Toast.LENGTH_SHORT).show()
+                  }
+              }
+
               private fun isDrawerOpen(): Boolean = drawer.visibility == View.VISIBLE
 
               private fun openDrawer(focusSearch: Boolean) {
-                  drawer.visibility = View.VISIBLE
+                  if (!isDrawerOpen()) {
+                      drawerList.scrollToPosition(0)
+                      drawer.visibility = View.VISIBLE
+                  }
                   if (focusSearch) {
                       drawerSearch.requestFocus()
                       (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
