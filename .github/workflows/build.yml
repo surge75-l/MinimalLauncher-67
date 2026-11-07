@@ -37,8 +37,8 @@ jobs:
 
           cat > build.gradle.kts << 'EOF'
           plugins {
-              id("com.android.application") version "8.2.2" apply false
-              id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+              id("com.android.application") version "8.6.0" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
           }
           EOF
 
@@ -55,12 +55,12 @@ jobs:
 
           android {
               namespace = "com.minimal.launcher"
-              compileSdk = 33
+              compileSdk = 35
 
               defaultConfig {
                   applicationId = "com.minimal.launcher"
                   minSdk = 26
-                  targetSdk = 33
+                  targetSdk = 34
                   versionCode = 1
                   versionName = "1.0"
               }
@@ -445,11 +445,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Instalar plataforma Android 33
+      - name: Instalar plataforma Android 35
         run: |
           SDKMANAGER="${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager"
           (yes | "$SDKMANAGER" --licenses) > /dev/null 2>&1 || true
-          "$SDKMANAGER" "platforms;android-33" "build-tools;33.0.2"
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
 
       - uses: gradle/actions/setup-gradle@v3
         with:
