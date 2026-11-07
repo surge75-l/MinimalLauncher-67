@@ -445,12 +445,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Instalar plataformas y herramientas de Android
+      - name: Instalar plataforma Android 33
         run: |
-          (yes | sdkmanager --licenses) > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-33" "build-tools;33.0.2" "build-tools;34.0.0"
+          SDKMANAGER="${ANDROID_HOME:-/usr/local/lib/android/sdk}/cmdline-tools/latest/bin/sdkmanager"
+          (yes | "$SDKMANAGER" --licenses) > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-33" "build-tools;33.0.2"
 
       - uses: gradle/actions/setup-gradle@v3
         with:
